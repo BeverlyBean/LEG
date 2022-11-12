@@ -27,9 +27,17 @@
 #include "sram.h"
 #endif
 #include "puppyprint.h"
+#include <prevent_bss_reordering.h>
+
+#include <point_lights.h>
+
+// FIXME: I'm not sure all of these variables belong in this file, but I don't
+// know of a good way to split them
+struct Controller gControllers[3];
 #include "puppycam2.h"
 #include "debug_box.h"
 #include "vc_check.h"
+#include "vc_ultra.h"
 #include "profiling.h"
 
 // First 3 controller slots
@@ -105,7 +113,7 @@ struct DemoInput gRecordedDemoInput = { 0 };
  */
 const Gfx init_rdp[] = {
     gsDPPipeSync(),
-    gsDPPipelineMode(G_PM_1PRIMITIVE),
+    gsDPPipelineMode(G_PM_NPRIMITIVE),
 
     gsDPSetScissor(G_SC_NON_INTERLACE, 0, 0, SCREEN_WIDTH, SCREEN_HEIGHT),
     gsDPSetCombineMode(G_CC_SHADE, G_CC_SHADE),
@@ -136,7 +144,6 @@ const Gfx init_rsp[] = {
     gsDPPipeSync(),
     gsSPClearGeometryMode(G_CULL_FRONT | G_FOG | G_LIGHTING | G_TEXTURE_GEN | G_TEXTURE_GEN_LINEAR | G_LOD),
     gsSPSetGeometryMode(G_SHADE | G_SHADING_SMOOTH | G_CULL_BACK | G_LIGHTING),
-    gsSPNumLights(NUMLIGHTS_1),
     gsSPTexture(0, 0, 0, G_TX_RENDERTILE, G_OFF),
     // @bug Failing to set the clip ratio will result in warped triangles in F3DEX2
     // without this change: https://jrra.zone/n64/doc/n64man/gsp/gSPClipRatio.htm
@@ -414,16 +421,6 @@ void render_init(void) {
 #ifdef DEBUG_FORCE_CRASH_ON_BOOT
     FORCE_CRASH
 #endif
-    if (IO_READ(DPC_PIPEBUSY_REG) == 0) {
-        gIsConsole = FALSE;
-        gBorderHeight = BORDER_HEIGHT_EMULATOR;
-        gIsVC = IS_VC();
-        check_cache_emulation();
-    } else {
-        gIsConsole = TRUE;
-        gBorderHeight = BORDER_HEIGHT_CONSOLE;
-    }
-
     gGfxPool = &gGfxPools[0];
     set_segment_base_addr(SEGMENT_RENDER, gGfxPool->buffer);
     gGfxSPTask = &gGfxPool->spTask;
@@ -644,8 +641,8 @@ void read_controller_inputs(s32 threadID) {
         if (controller->controllerData != NULL) {
             controller->rawStickX = controller->controllerData->stick_x;
             controller->rawStickY = controller->controllerData->stick_y;
-            controller->buttonPressed = controller->controllerData->button
-                                        & (controller->controllerData->button ^ controller->buttonDown);
+            controller->buttonPressed = ~controller->buttonDown & controller->controllerData->button;
+            controller->buttonReleased = ~controller->controllerData->button & controller->buttonDown;
             // 0.5x A presses are a good meme
             controller->buttonDown = controller->controllerData->button;
             adjust_analog_stick(controller);
@@ -653,6 +650,7 @@ void read_controller_inputs(s32 threadID) {
             controller->rawStickX = 0;
             controller->rawStickY = 0;
             controller->buttonPressed = 0;
+            controller->buttonReleased = 0;
             controller->buttonDown = 0;
             controller->stickX = 0;
             controller->stickY = 0;
@@ -669,6 +667,7 @@ void read_controller_inputs(s32 threadID) {
     gPlayer3Controller->stickY = gPlayer1Controller->stickY;
     gPlayer3Controller->stickMag = gPlayer1Controller->stickMag;
     gPlayer3Controller->buttonPressed = gPlayer1Controller->buttonPressed;
+    gPlayer3Controller->buttonReleased = gPlayer1Controller->buttonReleased;
     gPlayer3Controller->buttonDown = gPlayer1Controller->buttonDown;
 }
 
@@ -687,7 +686,9 @@ void init_controllers(void) {
 #ifdef EEP
     // strangely enough, the EEPROM probe for save data is done in this function.
     // save pak detection?
-    gEepromProbe = osEepromProbe(&gSIEventMesgQueue);
+    gEepromProbe = gIsVC
+                 ? osEepromProbeVC(&gSIEventMesgQueue)
+                 : osEepromProbe  (&gSIEventMesgQueue);
 #endif
 #ifdef SRAM
     gSramProbe = nuPiInitSram();
@@ -745,6 +746,8 @@ void setup_game_memory(void) {
     load_segment_decompress(SEGMENT_SEGMENT2, _segment2_mio0SegmentRomStart, _segment2_mio0SegmentRomEnd);
 }
 
+void setup_global_light();
+
 /**
  * Main game loop thread. Runs forever as long as the game continues.
  */
@@ -796,8 +799,14 @@ void thread5_game_loop(UNUSED void *arg) {
 
         audio_game_loop_tick();
         select_gfx_pool();
+        setup_global_light();
         read_controller_inputs(THREAD_5_GAME_LOOP);
         profiler_update(PROFILER_TIME_CONTROLLERS);
+
+        // Reset the point light count before running the level script
+        // This is because the level script is responsible for calling the function
+        // that updates objects, which is where objects that emit light create their point lights
+        gPointLightCount = gAreaPointLightCount;
         addr = level_script_execute(addr);
 #if !PUPPYPRINT_DEBUG && defined(VISUAL_DEBUG)
         debug_box_input();
