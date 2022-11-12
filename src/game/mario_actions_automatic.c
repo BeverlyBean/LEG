@@ -558,7 +558,8 @@ void update_ledge_climb(struct MarioState *m, s32 animation, u32 endAction) {
 }
 
 s32 act_ledge_grab(struct MarioState *m) {
-    f32 heightAboveFloor;
+    return let_go_of_ledge(m);
+    /*f32 heightAboveFloor;
     s16 intendedDYaw = m->intendedYaw - m->faceAngle[1];
     s32 hasSpaceForMario = (m->ceilHeight - m->floorHeight >= 160.0f);
 
@@ -610,7 +611,7 @@ s32 act_ledge_grab(struct MarioState *m) {
     stop_and_set_height_to_floor(m);
     set_mario_animation(m, MARIO_ANIM_IDLE_ON_LEDGE);
 
-    return FALSE;
+    return FALSE;*/
 }
 
 s32 act_ledge_climb_slow(struct MarioState *m) {
