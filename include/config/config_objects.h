@@ -60,7 +60,7 @@
 /**
  * Enables Mr I to shoot his particle in any direction.
  */
-#define MR_I_PITCH_SHOOTING
+// #define MR_I_PITCH_SHOOTING
 
 /********************
  * -- WATER RING --
@@ -96,7 +96,7 @@
 /**
  * Allows the speed of a platform on a track to be controlled by standing near the front or back of it.
  */
-#define CONTROLLABLE_PLATFORM_SPEED
+// #define CONTROLLABLE_PLATFORM_SPEED
 
 /*********************
  * -- CHAIN CHOMP --

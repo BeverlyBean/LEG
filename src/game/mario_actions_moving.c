@@ -282,13 +282,13 @@ void apply_slope_accel(struct MarioState *m) {
 
         switch (slopeClass) {
             case SURFACE_CLASS_VERY_SLIPPERY:
-                slopeAccel = 0.0f;
+                slopeAccel = 5.3f;
                 break;
             case SURFACE_CLASS_SLIPPERY:
-                slopeAccel = 0.0f;
+                slopeAccel = 2.7f;
                 break;
             default:
-                slopeAccel = 0.0f;
+                slopeAccel = 1.7f;
                 break;
             case SURFACE_CLASS_NOT_SLIPPERY:
                 slopeAccel = 0.0f;
@@ -408,7 +408,7 @@ s32 update_decelerating_speed(struct MarioState *m) {
         stopped = TRUE;
     }
 
-    mario_set_forward_vel(m, 0.0f);
+    mario_set_forward_vel(m, m->forwardVel);
     mario_update_moving_sand(m);
     mario_update_windy_ground(m);
 
@@ -420,9 +420,9 @@ void update_walking_speed(struct MarioState *m) {
     f32 targetSpeed;
 
     if (m->floor != NULL && m->floor->type == SURFACE_SLOW) {
-        maxTargetSpeed = 0.0f;
+        maxTargetSpeed = 24.0f;
     } else {
-        maxTargetSpeed = 0.0f;
+        maxTargetSpeed = 32.0f;
     }
 
     targetSpeed = m->intendedMag < maxTargetSpeed ? m->intendedMag : maxTargetSpeed;
@@ -801,9 +801,9 @@ s32 act_walking(struct MarioState *m) {
             break;
 
         case GROUND_STEP_NONE:
-            //anim_and_audio_for_walk(m);
+            anim_and_audio_for_walk(m);
             if (m->intendedMag - m->forwardVel > 16.0f) {
-                //m->particleFlags |= PARTICLE_DUST;
+                m->particleFlags |= PARTICLE_DUST;
             }
             break;
 
@@ -823,7 +823,34 @@ s32 act_move_punching(struct MarioState *m) {
         return set_mario_action(m, ACT_BEGIN_SLIDING, 0);
     }
 
-    return set_mario_action(m, ACT_JUMP_KICK, 0);
+    if (m->actionState == ACT_STATE_MOVE_PUNCHING_CAN_JUMP_KICK && (m->input & INPUT_A_DOWN)) {
+        return set_mario_action(m, ACT_JUMP_KICK, 0);
+    }
+
+    m->actionState = ACT_STATE_MOVE_PUNCHING_NO_JUMP_KICK;
+
+    mario_update_punch_sequence(m);
+
+    if (m->forwardVel >= 0.0f) {
+        apply_slope_decel(m, 0.5f);
+    } else {
+        if ((m->forwardVel += 8.0f) >= 0.0f) {
+            m->forwardVel = 0.0f;
+        }
+        apply_slope_accel(m);
+    }
+
+    switch (perform_ground_step(m)) {
+        case GROUND_STEP_LEFT_GROUND:
+            set_mario_action(m, ACT_FREEFALL, 0);
+            break;
+
+        case GROUND_STEP_NONE:
+            m->particleFlags |= PARTICLE_DUST;
+            break;
+    }
+
+    return FALSE;
 }
 
 s32 act_hold_walking(struct MarioState *m) {
@@ -871,10 +898,10 @@ s32 act_hold_walking(struct MarioState *m) {
             break;
     }
 
-    //anim_and_audio_for_hold_walk(m);
+    anim_and_audio_for_hold_walk(m);
 
     if (0.4f * m->intendedMag - m->forwardVel > 10.0f) {
-        //m->particleFlags |= PARTICLE_DUST;
+        m->particleFlags |= PARTICLE_DUST;
     }
 
     return FALSE;
@@ -909,7 +936,7 @@ s32 act_hold_heavy_walking(struct MarioState *m) {
             break;
     }
 
-    //anim_and_audio_for_heavy_walk(m);
+    anim_and_audio_for_heavy_walk(m);
     return FALSE;
 }
 
@@ -1085,7 +1112,7 @@ s32 act_decelerating(struct MarioState *m) {
         set_mario_animation(m, MARIO_ANIM_IDLE_HEAD_LEFT);
         play_sound(SOUND_MOVING_TERRAIN_SLIDE + m->terrainSoundAddend, m->marioObj->header.gfx.cameraToObject);
         adjust_sound_for_speed(m);
-        //m->particleFlags |= PARTICLE_DUST;
+        m->particleFlags |= PARTICLE_DUST;
     } else {
         // (Speed Crash) Crashes if speed exceeds 2^17.
         s32 animSpeed = (s32)(m->forwardVel / 4.0f * 0x10000);
